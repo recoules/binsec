@@ -276,6 +276,21 @@ module Integers = struct
   end
 end
 
+module Time = struct
+  type t = float
+
+  let pp ppf t =
+    let h = int_of_float (t /. 3600.) in
+    let m = int_of_float (t /. 60.) - (60 * h) in
+    let s = int_of_float t - (3600 * h) - (60 * m) in
+    if h > 0 then Format.fprintf ppf "%dh%02dm%02ds" h m s
+    else if m > 0 then Format.fprintf ppf "%dm%02ds" m s
+    else
+      let ms = int_of_float (t *. 1000.) - (1000 * s) in
+      if s > 0 then Format.fprintf ppf "%d.%1ds" s (ms / 100)
+      else Format.fprintf ppf "%dms" ms
+end
+
 module Constants = struct
   let bytesize = Natural.create 8
 end

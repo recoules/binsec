@@ -91,6 +91,8 @@ module Integers : sig
   end
 end
 
+module Time : Sigs.PRINTABLE with type t = float
+
 (** {2 Maps & Sets on base types} *)
 
 (* HINT:
