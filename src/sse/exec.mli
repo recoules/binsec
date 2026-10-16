@@ -57,18 +57,7 @@ module type CONFIG = sig
   val missing_symbols : warnerror
   val timeout : int option
   val entry : Virtual_address.t option
-
-  val script :
-    ( unit,
-      Binsec_script.obj,
-      unit,
-      unit,
-      Binsec_script.obj Dyp.dyplexbuf )
-    Dyp.dyp_action
-    list
-    list ->
-    Script.Ast.t list
-
+  val script : (module Script.EXTENSION) list -> Ast.t list
   val plugins : (module PLUGIN) list
 end
 

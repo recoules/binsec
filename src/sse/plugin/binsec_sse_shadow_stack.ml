@@ -31,30 +31,27 @@ module Logger = Logger.Sub (struct
   let name = name
 end)
 
-type Script.Ast.t += Initial_stack of Script.Ast.Expr.t Script.Ast.loc list
+type Ast.t += Initial_stack of Ast.Expr.t Ast.loc list
 
 type ('value, 'model, 'state, 'path, 'a) field_id +=
   | Stack : ('value, 'model, 'state, 'path, 'value list) field_id
 
-let grammar_extension =
-  [
-    Dyp.Add_rules
-      [
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "initial");
-              Dyp.Regexp (RE_String "call");
-              Dyp.Regexp (RE_String "stack");
-              Dyp.Non_ter ("comma_separated_expr_rev_list", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; _; Binsec_script.Syntax.Obj (Script.Expr_list values) ] ->
-                (Binsec_script.Syntax.Decl (Initial_stack (List.rev values)), [])
-            | _ -> assert false );
-      ];
-  ]
+module Grammar_extension : Script.EXTENSION =
+functor
+  (S : Script.SYMBOLS)
+  ->
+  struct
+    let extend acc =
+      Cromlech.Grammar.rule S.nt_decl
+        [
+          Terminal (S.keyword "initial");
+          Terminal (S.keyword "call");
+          Terminal (S.keyword "stack");
+          NonTerminal S.nt_comma_separated_nonempty_expr_list;
+        ]
+        (fun _ _ _ values -> Initial_stack values)
+      :: acc
+  end
 
 let command_printer ppf = function
   | Initial_stack values ->
@@ -109,7 +106,7 @@ module Inline_plugin = struct
         ]
     in
     [
-      Grammar_extension grammar_extension;
+      Grammar_extension (module Grammar_extension);
       Initialization_callback (fun path -> P.assign path ptr zero);
       Command_handler
         (fun decl (env : Script.env) path ->
@@ -203,7 +200,7 @@ module Builtin (E : ENGINE) : EXTENSIONS with type path = E.Path.t = struct
 
   let list : P.t extension list =
     [
-      Grammar_extension grammar_extension;
+      Grammar_extension (module Grammar_extension);
       Command_handler
         (fun decl (env : Script.env) path ->
           match decl with

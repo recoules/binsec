@@ -19,9 +19,6 @@
 (*                                                                        *)
 (**************************************************************************)
 
-module Ast = Binsec_script.Ast
-module Syntax = Binsec_script.Syntax
-
 exception Unresolved of string * Dba.Var.Tag.attribute
 
 type env = {
@@ -47,23 +44,6 @@ module Output : sig
   val eval : env -> t -> (Dba.Var.t, Dba.Expr.t) Output.t
   val pp : Format.formatter -> t -> unit
 end
-
-type Ast.Obj.t +=
-  | Int of int
-  | Int_list of int list
-  | Format of Output.format
-  | Output of Output.t
-  | Output_list of Output.t list
-  | String_list of string list
-  | Key_val of (string * string)
-  | Key_val_list of (string * string) list
-  | Symbol_list of Symbol.t loc list
-  | Loc_opt of Loc.t loc option
-  | Loc_opt_list of Loc.t loc option list
-  | Expr_opt of Expr.t loc option
-  | Expr_list of Expr.t loc list
-  | Named of (Expr.t loc * string)
-  | Named_list of (Expr.t loc * string) list
 
 type Ast.Instr.t +=
   | Argument of Loc.t loc * int  (** [lval] := arg([i]) *)
@@ -92,29 +72,18 @@ val pp_stmts : Format.formatter -> Ast.Instr.t list -> unit
 val register_pp : (Format.formatter -> Ast.t -> bool) -> unit
 val pp : Format.formatter -> Ast.t -> unit
 
-val read_files :
-  ( unit,
-    Binsec_script.obj,
-    unit,
-    unit,
-    Binsec_script.obj Dyp.dyplexbuf )
-  Dyp.dyp_action
-  list
-  list ->
-  string list ->
-  Ast.t list
+module type SYMBOLS = sig
+  include Parser.SYMBOLS
 
-val read_string :
-  ( unit,
-    Binsec_script.obj,
-    unit,
-    unit,
-    Binsec_script.obj Dyp.dyplexbuf )
-  Dyp.dyp_action
-  list
-  list ->
-  string ->
-  Ast.t list
+  val keyword : string -> unit Cromlech.Grammar.terminal
+end
+
+module type EXTENSION = functor (_ : SYMBOLS) -> sig
+  val extend : Cromlech.Grammar.rule list -> Cromlech.Grammar.rule list
+end
+
+val read_files : (module EXTENSION) list -> string list -> Ast.t list
+val read_string : (module EXTENSION) list -> string -> Ast.t list
 
 exception Inference_failure of Expr.t loc
 exception Invalid_size of Expr.t loc * int * int

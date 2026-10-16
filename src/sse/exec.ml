@@ -62,7 +62,7 @@ let pp_value_as (format : Output.format) ppf bv =
   | Hex -> Format.pp_print_string ppf @@ Bitvector.to_hexstring bv
   | Ascii -> Format.fprintf ppf "%S" @@ Bitvector.to_asciistring bv
 
-let same_symbol name attr ((expr : Script.Ast.Expr.t), _) =
+let same_symbol name attr ((expr : Ast.Expr.t), _) =
   match expr with
   | Symbol ((name', attr'), _) -> name = name' && attr = attr'
   | _ -> false
@@ -120,18 +120,7 @@ module type CONFIG = sig
   val missing_symbols : warnerror
   val timeout : int option
   val entry : Virtual_address.t option
-
-  val script :
-    ( unit,
-      Binsec_script.obj,
-      unit,
-      unit,
-      Binsec_script.obj Dyp.dyplexbuf )
-    Dyp.dyp_action
-    list
-    list ->
-    Script.Ast.t list
-
+  val script : (module Script.EXTENSION) list -> Ast.t list
   val plugins : (module PLUGIN) list
 end
 
@@ -1069,7 +1058,7 @@ module Run (Config : CONFIG) (State : STATE) (W : Worklist.S) () = struct
               | Grammar_extension g ->
                   grammar_extentions := g :: !grammar_extentions
               | Instruction_resolver f -> Queue.add f instruction_callbacks
-              | Instruction_printer f -> Script.Ast.Instr.register_pp f
+              | Instruction_printer f -> Ast.Instr.register_pp f
               | Command_handler f ->
                   declaration_callbacks := f :: !declaration_callbacks
               | Command_printer f -> Script.register_pp f

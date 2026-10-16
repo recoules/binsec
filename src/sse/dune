@@ -12,4 +12,29 @@
   binsec.kernel
   binsec.symbolic
   binsec.sse.loader
-  binsec.script))
+  binsec.script
+  menhir.cromlech))
+
+(menhir
+ (merge_into parser)
+ (modules expr stmt script)
+ (flags
+  --partial
+  expr
+  --partial
+  stmt
+  --partial
+  script
+  --strict
+  --fixed-exception))
+
+(copy_files ../script/*.mly)
+
+(ocamllex
+ (modules lexer))
+
+(install
+ (section share)
+ (files
+  (glob_files
+   (*.mly with_prefix grammar/sse))))

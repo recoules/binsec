@@ -1,7 +1,7 @@
 (**************************************************************************)
 (*  This file is part of BINSEC.                                          *)
 (*                                                                        *)
-(*  Copyright (C) 2016-2026                                               *)
+(*  Copyright (C) 2016-2023                                               *)
 (*    CEA (Commissariat à l'énergie atomique et aux énergies              *)
 (*         alternatives)                                                  *)
 (*                                                                        *)
@@ -19,27 +19,36 @@
 (*                                                                        *)
 (**************************************************************************)
 
-let () =
-  match Sys.argv with
-  | [| _; dyp_meta; zarith_meta; binsec_meta; dypgen; src |] ->
-      let dyp_lib = Filename.dirname dyp_meta
-      and zarith_lib = Filename.dirname zarith_meta
-      and binsec_lib = Filename.dirname binsec_meta in
-      Unix.execv dypgen
-        [|
-          dypgen;
-          "--ocamlc";
-          Format.sprintf
-            "-I . -I %s -I %s -I %s -I %s/base -I %s/kernel/dba -I %s/kernel \
-             -I %s/script/ast -open Binsec_kernel -open Binsec_script_ast \
-             -rectypes"
-            dyp_lib zarith_lib binsec_lib binsec_lib binsec_lib binsec_lib
-            binsec_lib;
-          src;
-        |]
-  | _ ->
-      failwith
-        (Format.sprintf
-           "usage: %s %%{lib:dyp:META} %%{lib:zarith:META} %%{lib:binsec:META} \
-            %%{bin:dypgen} %%{src}"
-           (Array.get Sys.argv 0))
+%{
+  open Xast
+%}
+
+(* Keyword tokens *********************************************************)
+
+%token SECRET PUBLIC GLOBAL
+%token CHECK ERASURE OVER
+
+%%
+
+%public
+let decl :=
+  | secret=secret_or_public; GLOBAL; names=separated_nonempty_list(",", IDENT);
+    { Globals (secret, names) }
+  | CHECK; SECRET; ERASURE; OVER; ~=symbol;
+    { Return_hook (symbol, [ Se_check; Instr.halt ]) }
+
+%public
+let fallthrough :=
+  | lval=loc; ":="; secret=secret_or_public;
+    { [ (if secret then Secret lval else Instr.nondet lval) ] }
+  | lval=loc; ":="; secret=secret_or_public; AS; name=IDENT;
+    { let var = ( Ast.Loc.var name ~size:(Ast.Size.sizeof lval),
+                  Lexing.dummy_pos ) in
+      [ (if secret then Secret var else Instr.nondet var);
+        Instr.assign lval (Ast.Expr.loc var, Lexing.dummy_pos); ] }
+  | CHECK; SECRET; ERASURE;
+    { [ Se_check ] }
+
+let secret_or_public :=
+  | SECRET; { true }
+  | PUBLIC; { false }

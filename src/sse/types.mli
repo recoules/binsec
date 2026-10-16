@@ -263,17 +263,9 @@ type 'path extension =
           {!module-Revision.val-insert_before} or
           {!module-Revision.val-insert_list_before} function on the successor of
           the node. *)
-  | Grammar_extension of
-      ( unit,
-        Binsec_script.obj,
-        unit,
-        unit,
-        Binsec_script.obj Dyp.dyplexbuf )
-      Dyp.dyp_action
-      list
-      (** A list of {b dypgen} grammar rules ({!module-Dyp.val-dyp_action}). *)
-  | Instruction_resolver of
-      (Script.Ast.Instr.t -> Script.env -> Ir.fallthrough list)
+  | Grammar_extension of (module Script.EXTENSION)
+      (** A set of grammar rules. *)
+  | Instruction_resolver of (Ast.Instr.t -> Script.env -> Ir.fallthrough list)
       (** Registers the handler [f] to translate custom script instructions
           ({!module-Script.module-Ast.module-Instr.type-t}) to one or several
           micro-instruction ({!module-Ir.type-fallthrough}), including custom
@@ -285,13 +277,13 @@ type 'path extension =
 
           The handler [f] should return a non empty instruction [list] for the
           script instructions it supports, [[]] otherwise. *)
-  | Instruction_printer of (Format.formatter -> Script.Ast.Instr.t -> bool)
+  | Instruction_printer of (Format.formatter -> Ast.Instr.t -> bool)
       (** Registers the custom printer [f] to format the new script instruction
           ({!module-Script.module-Ast.module-Instr.type-t}) in debug outputs.
 
           The printer [f] should return [true] for the instructions it handles,
           [false] otherwise. *)
-  | Command_handler of (Script.Ast.t -> Script.env -> 'path -> bool)
+  | Command_handler of (Ast.t -> Script.env -> 'path -> bool)
       (** Registers the handler [f] to perform custom top level script commands
           ({!module-Script.module-Ast.type-t}).
 
@@ -301,7 +293,7 @@ type 'path extension =
 
           The handler [f] should return [true] when the command has been
           treated, [false] otherwise. *)
-  | Command_printer of (Format.formatter -> Script.Ast.t -> bool)
+  | Command_printer of (Format.formatter -> Ast.t -> bool)
       (** Registers the custom printer [f] to format the new top level script
           commands ({!module-Script.module-Ast.type-t}) in debug outputs.
 

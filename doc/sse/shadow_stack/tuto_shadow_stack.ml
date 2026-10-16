@@ -6,36 +6,33 @@ end
 open Binsec_sse.Types
 
 (* Import the modules [Ast] and [Syntax], and the [eval_expr] function. *)
-open Binsec_sse.Script
+module Ast = Binsec_sse.Ast
 
 type Ast.t += Initial_stack of Ast.Expr.t Ast.loc list
 
-let grammar_extension =
-  [
-    Dyp.Add_rules
-      [
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "initial");
-              Dyp.Regexp (RE_String "call");
-              Dyp.Regexp (RE_String "stack");
-              Dyp.Non_ter ("comma_separated_expr_rev_list", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; _; Syntax.Obj (Expr_list values) ] ->
-                (Syntax.Decl (Initial_stack (List.rev values)), [])
-            | _ -> assert false );
-      ];
-  ]
+module Grammar_extension : Binsec_sse.Script.EXTENSION =
+functor
+  (S : Binsec_sse.Script.SYMBOLS)
+  ->
+  struct
+    let extend acc =
+      Cromlech.Grammar.rule S.nt_decl
+        [
+          Terminal (S.keyword "initial");
+          Terminal (S.keyword "call");
+          Terminal (S.keyword "stack");
+          NonTerminal S.nt_comma_separated_nonempty_expr_list;
+        ]
+        (fun _ _ _ values -> Initial_stack values)
+      :: acc
+  end
 
 let command_printer ppf = function
   | Initial_stack values ->
       Format.fprintf ppf "initial call stack %a"
         (Format.pp_print_list
            ~pp_sep:(fun ppf () -> Format.pp_print_string ppf ", ")
-           (fun ppf (addr, _) -> Expr.pp ppf addr))
+           (fun ppf (addr, _) -> Ast.Expr.pp ppf addr))
         values;
       true
   | _ -> false
@@ -143,7 +140,7 @@ module V1 (Engine : ENGINE) : EXTENSIONS with type path = Engine.Path.t = struct
       Initialization_callback
         (fun path -> Engine.Path.assign path stack_pointer_var zero_exp);
       (* Script extension *)
-      Grammar_extension grammar_extension;
+      Grammar_extension (module Grammar_extension);
       Command_printer command_printer;
       Command_handler
         (fun decl env path ->
@@ -152,7 +149,7 @@ module V1 (Engine : ENGINE) : EXTENSIONS with type path = Engine.Path.t = struct
               Engine.Path.assign path stack_pointer_var
                 (List.fold_left
                    (fun stack_pointer_exp addr ->
-                     let addr = eval_expr ~size:env.wordsize addr env in
+                     let addr = Script.eval_expr ~size:env.wordsize addr env in
                      Engine.Path.store path shadow_stack_name
                        ~addr:stack_pointer_exp addr LittleEndian;
                      Dba.Expr.addi stack_pointer_exp offset)
@@ -306,11 +303,11 @@ module V2 (Engine : ENGINE) : EXTENSIONS with type path = Engine.Path.t = struct
                 (List.rev_map
                    (fun addr ->
                      Engine.Path.get_value path
-                       (eval_expr ~size:env.wordsize addr env))
+                       (Script.eval_expr ~size:env.wordsize addr env))
                    values);
               true
           | _ -> false);
-      Grammar_extension grammar_extension (* Same as V1 *);
+      Grammar_extension (module Grammar_extension) (* Same as V1 *);
     ]
 end
 

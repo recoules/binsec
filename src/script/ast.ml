@@ -19,10 +19,6 @@
 (*                                                                        *)
 (**************************************************************************)
 
-module Obj = struct
-  type t = ..
-end
-
 type 'a loc = 'a * Lexing.position
 
 let loc a position = (a, position)

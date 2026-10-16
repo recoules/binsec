@@ -65,7 +65,6 @@
   (zarith
    (>= 1.13))
   dune-site
-  dypgen
   (toml
    (>= 6))
   mula

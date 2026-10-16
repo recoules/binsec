@@ -19,10 +19,6 @@
 (*                                                                        *)
 (**************************************************************************)
 
-module Obj : sig
-  type t = ..
-end
-
 type 'a loc = 'a * Lexing.position
 
 val loc : 'a -> Lexing.position -> 'a loc

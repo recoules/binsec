@@ -142,10 +142,9 @@ module Status = struct
   let pp ppf t = Format.pp_print_string ppf (to_string t)
 end
 
-type Ast.Obj.t += Bool of bool
-type Ast.Instr.t += Secret of Ast.Loc.t Ast.loc
-type Ast.Instr.t += Se_check
-type Ast.t += Globals of bool * string list
+type Ast.Instr.t += Secret = Xast.Secret
+type Ast.Instr.t += Se_check = Xast.Se_check
+type Ast.t += Globals = Xast.Globals
 
 module type OPTIONS = sig
   val leak_info : leak_info
@@ -321,140 +320,20 @@ end
 type ('value, 'model, 'state, 'path, 'a) field_id +=
   | Ct_state : ('value, 'model, 'state, 'path, Ct_state.t) field_id
 
-let grammar_extension =
-  [
-    Dyp.Bind_to_cons
-      [ ("secret_or_public", "Obj"); ("comma_separated_ident_rev_list", "Obj") ];
-    Dyp.Add_rules
-      [
-        ( ( "secret_or_public",
-            [ Dyp.Regexp (RE_String "secret") ],
-            "default_priority",
-            [] ),
-          fun _ _ -> (Binsec_script.Syntax.Obj (Bool true), []) );
-        ( ( "secret_or_public",
-            [ Dyp.Regexp (RE_String "public") ],
-            "default_priority",
-            [] ),
-          fun _ _ -> (Binsec_script.Syntax.Obj (Bool false), []) );
-        ( ( "comma_separated_ident_rev_list",
-            [ Dyp.Non_ter ("ident", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Binsec_script.Syntax.String ident ] ->
-                (Binsec_script.Syntax.Obj (String_list [ ident ]), [])
-            | _ -> assert false );
-        ( ( "comma_separated_ident_rev_list",
-            [
-              Dyp.Non_ter ("comma_separated_ident_rev_list", No_priority);
-              Dyp.Regexp (RE_Char ',');
-              Dyp.Non_ter ("ident", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                Binsec_script.Syntax.Obj (String_list l);
-                _;
-                Binsec_script.Syntax.String ident;
-              ] ->
-                (Binsec_script.Syntax.Obj (String_list (ident :: l)), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Non_ter ("secret_or_public", No_priority);
-              Dyp.Regexp (RE_String "global");
-              Dyp.Non_ter ("comma_separated_ident_rev_list", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                Binsec_script.Syntax.Obj (Bool secret);
-                _;
-                Binsec_script.Syntax.Obj (String_list names);
-              ] ->
-                (Binsec_script.Syntax.(Decl (Globals (secret, names))), [])
-            | _ -> raise Dyp.Giveup );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "check");
-              Dyp.Regexp (RE_String "secret");
-              Dyp.Regexp (RE_String "erasure");
-              Dyp.Regexp (RE_String "over");
-              Dyp.Non_ter ("symbol", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; _; _; Binsec_script.Syntax.Symbol symbol ] ->
-                ( Binsec_script.Syntax.Decl
-                    (Script.Return_hook (symbol, [ Se_check; Script.Instr.halt ])),
-                  [] )
-            | _ -> assert false );
-        ( ( "fallthrough",
-            [
-              Dyp.Non_ter ("loc", No_priority);
-              Dyp.Regexp (RE_String ":=");
-              Dyp.Non_ter ("secret_or_public", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                Binsec_script.Syntax.Loc lval;
-                _;
-                Binsec_script.Syntax.Obj (Bool secret);
-              ] ->
-                ( Binsec_script.Syntax.Instr
-                    (if secret then Secret lval else Script.Instr.nondet lval),
-                  [] )
-            | _ -> raise Dyp.Giveup );
-        ( ( "fallthrough",
-            [
-              Dyp.Regexp (RE_String "check");
-              Dyp.Regexp (RE_String "secret");
-              Dyp.Regexp (RE_String "erasure");
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; _ ] -> (Binsec_script.Syntax.Instr Se_check, [])
-            | _ -> raise Dyp.Giveup );
-        ( ( "instr",
-            [
-              Dyp.Non_ter ("loc", No_priority);
-              Dyp.Regexp (RE_String ":=");
-              Dyp.Non_ter ("secret_or_public", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Ter "AS";
-              Dyp.Non_ter ("ident", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                Binsec_script.Syntax.Loc lval;
-                _;
-                Binsec_script.Syntax.Obj (Bool secret);
-                _;
-                _;
-                Binsec_script.Syntax.String name;
-              ] ->
-                let var =
-                  ( Ast.Loc.var name ~size:(Ast.Size.sizeof lval),
-                    Lexing.dummy_pos )
-                in
-                ( Binsec_script.Syntax.Stmt
-                    [
-                      (if secret then Secret var else Ast.Instr.nondet var);
-                      Ast.Instr.assign lval (Ast.Expr.loc var, Lexing.dummy_pos);
-                    ],
-                  [] )
-            | _ -> assert false );
-      ];
-  ]
+module Grammar_extension : Script.EXTENSION =
+functor
+  (S : Script.SYMBOLS)
+  ->
+  Xparser.Grammar (struct
+    include S
+
+    let tk_secret = keyword "secret"
+    let tk_public = keyword "public"
+    let tk_global = keyword "global"
+    let tk_check = keyword "check"
+    let tk_erasure = keyword "erasure"
+    let tk_over = keyword "over"
+  end)
 
 module Make
     (Options : OPTIONS)
@@ -1064,7 +943,7 @@ module Make
 
   let list : Path.t extension list =
     [
-      Grammar_extension grammar_extension;
+      Grammar_extension (module Grammar_extension);
       Command_handler command_callback;
       Command_printer declaration_printer;
       Instruction_resolver instruction_callback;

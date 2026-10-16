@@ -19,7 +19,6 @@
 (*                                                                        *)
 (**************************************************************************)
 
-include Binsec_script
 module S = Basic_types.String
 
 exception Unresolved of string * Dba.Var.Tag.attribute
@@ -264,45 +263,27 @@ module Output = struct
     Output.pp (fun ppf (l, _) -> Loc.pp ppf l) (fun ppf (l, _) -> Expr.pp ppf l)
 end
 
-type Ast.Obj.t +=
-  | Int of int
-  | Int_list of int list
-  | Format of Output.format
-  | Output of Output.t
-  | Output_list of Output.t list
-  | String_list of string list
-  | String_slice of Expr.t loc * Expr.t loc option
-  | Key_val of (string * string)
-  | Key_val_list of (string * string) list
-  | Symbol_list of Symbol.t loc list
-  | Loc_opt of Loc.t loc option
-  | Loc_opt_list of Loc.t loc option list
-  | Expr_opt of Expr.t loc option
-  | Expr_list of Expr.t loc list
-  | Named of (Expr.t loc * string)
-  | Named_list of (Expr.t loc * string) list
-
 type Ast.Instr.t +=
-  | Argument of Loc.t loc * int  (** [lval] := arg([i]) *)
-  | Return of Expr.t loc option  (** return [rval] *)
-  | Cut of Expr.t loc option
-  | Print of Output.t
-  | Reach of int * Expr.t loc option * Output.t list
-  | Enumerate of int * Expr.t loc
+  | Argument = Ast.Argument
+  | Return = Ast.Return
+  | Cut = Ast.Cut
+  | Print = Ast.Print
+  | Reach = Ast.Reach
+  | Enumerate = Ast.Enumerate
   | Error of string
 
 type Ast.t +=
-  | Starting_from of Expr.t loc * Instr.t list
-  | Starting_from_core of Instr.t list
-  | Load_sections of string list
-  | Load_data of Loc.t loc
-  | Concretize_stack_pointer
-  | Import_symbols of Symbol.t loc list * string
-  | Hook of Expr.t loc list * Instr.t list * bool
-  | Return_hook of Ast.Symbol.t loc * Instr.t list
-  | Decode of Binstream.t * Instr.t list
-  | Init of Instr.t list
-  | Explore_all
+  | Starting_from = Ast.Starting_from
+  | Starting_from_core = Ast.Starting_from_core
+  | Load_sections = Ast.Load_sections
+  | Load_data = Ast.Load_data
+  | Concretize_stack_pointer = Ast.Concretize_stack_pointer
+  | Import_symbols = Ast.Import_symbols
+  | Hook = Ast.Hook
+  | Return_hook = Ast.Return_hook
+  | Decode = Ast.Decode
+  | Init = Ast.Init
+  | Explore_all = Ast.Explore_all
 
 let pp_comma_list pp =
   Format.pp_print_list
@@ -577,1103 +558,129 @@ let eval_block :
   in
   map
 
-let grammar : (unit, obj, unit, unit, obj Dyp.dyplexbuf) Dyp.dyp_action list =
-  [
-    Dyp.Bind_to_cons
-      [
-        ("byte", "Obj");
-        ("byte_rev_list", "Obj");
-        ("key_value", "Obj");
-        ("comma_separated_key_value_rev_list", "Obj");
-        ("options", "Obj");
-        ("format", "Obj");
-        ("named", "Obj");
-        ("comma_separated_named_rev_list", "Obj");
-        ("output", "Obj");
-        ("and_separated_output_rev_list", "Obj");
-        ("outputs", "Obj");
-        ("string_slice", "Obj");
-        ("times", "Obj");
-        ("such_that", "Obj");
-        ("guard", "Obj");
-        ("num", "Obj");
-        ("qident", "String");
-        ("section", "String");
-        ("comma_separated_section_rev_list", "Obj");
-        ("comma_separated_symbol_rev_list", "Obj");
-        ("arg", "Obj");
-        ("comma_separated_arg_rev_list", "Obj");
-        ("arguments", "Stmt");
-        ("expr_opt", "Obj");
-        ("comma_separated_expr_rev_list", "Obj");
-        ("with_stmts_end", "Stmt");
-        ("directive", "Stmt");
-        ("decl", "Decl");
-        ("rev_program", "Program");
-        ("program", "Program");
-      ];
-    Dyp.Add_rules
-      [
-        ( ( "byte",
-            [
-              Dyp.Regexp
-                (Dyp.RE_Seq [ Dyp.RE_Name "hexdigit"; Dyp.RE_Name "hexdigit" ]);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Lexeme_matched byte ] ->
-                (Syntax.Obj (Int (Z.to_int (Z.of_string_base 16 byte))), [])
-            | _ -> assert false );
-        ( ("byte_rev_list", [], "default_priority", []),
-          fun _ _ -> (Syntax.Obj (Int_list []), []) );
-        ( ( "byte_rev_list",
-            [
-              Dyp.Non_ter ("byte_rev_list", No_priority);
-              Dyp.Non_ter ("byte", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (Int_list bytes); Syntax.Obj (Int byte) ] ->
-                (Syntax.Obj (Int_list (byte :: bytes)), [])
-            | _ -> assert false );
-        ( ( "key_value",
-            [ Dyp.Non_ter ("qident", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.String key ] -> (Syntax.Obj (Key_val (key, "")), [])
-            | _ -> assert false );
-        ( ( "key_value",
-            [
-              Dyp.Non_ter ("qident", No_priority);
-              Dyp.Regexp (RE_Char '=');
-              Dyp.Non_ter ("qident", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.String key; _; Syntax.String value ] ->
-                (Syntax.Obj (Key_val (key, value)), [])
-            | _ -> assert false );
-        ( ( "comma_separated_key_value_rev_list",
-            [ Dyp.Non_ter ("key_value", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (Key_val pair) ] ->
-                (Syntax.Obj (Key_val_list [ pair ]), [])
-            | _ -> assert false );
-        ( ( "comma_separated_key_value_rev_list",
-            [
-              Dyp.Non_ter ("comma_separated_key_value_rev_list", No_priority);
-              Dyp.Regexp (RE_Char ',');
-              Dyp.Non_ter ("key_value", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (Key_val_list l); _; Syntax.Obj (Key_val pair) ] ->
-                (Syntax.Obj (Key_val_list (pair :: l)), [])
-            | _ -> assert false );
-        ( ("options", [], "default_priority", []),
-          fun _ _ -> (Syntax.Obj (Key_val_list []), []) );
-        ( ( "options",
-            [
-              Dyp.Regexp (RE_Char '[');
-              Dyp.Non_ter ("comma_separated_key_value_rev_list", No_priority);
-              Dyp.Regexp (RE_Char ']');
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Obj (Key_val_list l); _ ] ->
-                (Syntax.Obj (Key_val_list (List.rev l)), [])
-            | _ -> assert false );
-        ( ("num", [], "default_priority", []),
-          fun _ _ -> (Syntax.Obj (Int 1), []) );
-        ( ( "num",
-            [
-              Dyp.Regexp (RE_Char '(');
-              Dyp.Non_ter ("int", No_priority);
-              Dyp.Regexp (RE_Char ')');
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Obj_int n; _ ] -> (Syntax.Obj (Int (Z.to_int n)), [])
-            | _ -> assert false );
-        ( ("times", [], "default_priority", []),
-          fun _ _ -> (Syntax.Obj (Int 1), []) );
-        ( ( "times",
-            [ Dyp.Non_ter ("int", No_priority); Dyp.Regexp (RE_String "times") ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj_int n; _ ] -> (Syntax.Obj (Int (Z.to_int n)), [])
-            | _ -> assert false );
-        ( ("format", [], "default_priority", []),
-          fun _ _ -> (Syntax.Obj (Format Output.Hex), []) );
-        ( ("format", [ Dyp.Regexp (RE_String "ascii") ], "default_priority", []),
-          fun _ -> function _ -> (Syntax.Obj (Format Output.Ascii), []) );
-        ( ("format", [ Dyp.Regexp (RE_String "hexa") ], "default_priority", []),
-          fun _ -> function _ -> (Syntax.Obj (Format Output.Hex), []) );
-        ( ("format", [ Dyp.Regexp (RE_String "bin") ], "default_priority", []),
-          fun _ -> function _ -> (Syntax.Obj (Format Output.Bin), []) );
-        ( ("format", [ Dyp.Regexp (RE_String "dec") ], "default_priority", []),
-          fun _ -> function _ -> (Syntax.Obj (Format Output.Dec), []) );
-        ( ("named", [ Dyp.Non_ter ("var", No_priority) ], "default_priority", []),
-          fun _ -> function
-            | [ Syntax.Loc ((Loc.Var (name, _), pos) as var) ] ->
-                (Syntax.Obj (Named ((Expr.loc var, pos), name)), [])
-            | _ -> assert false );
-        ( ( "named",
-            [
-              Dyp.Non_ter ("expr", No_priority);
-              Dyp.Ter "AS";
-              Dyp.Non_ter ("ident", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Expr expr; _; Syntax.String alias ] ->
-                (Syntax.Obj (Named (expr, alias)), [])
-            | _ -> assert false );
-        ( ( "comma_separated_named_rev_list",
-            [ Dyp.Non_ter ("named", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (Named term) ] ->
-                (Syntax.Obj (Named_list [ term ]), [])
-            | _ -> assert false );
-        ( ( "comma_separated_named_rev_list",
-            [
-              Dyp.Non_ter ("comma_separated_named_rev_list", No_priority);
-              Dyp.Regexp (RE_Char ',');
-              Dyp.Non_ter ("named", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (Named_list l); _; Syntax.Obj (Named term) ] ->
-                (Syntax.Obj (Named_list (term :: l)), [])
-            | _ -> assert false );
-        ( ( "output",
-            [ Dyp.Regexp (RE_String "print"); Dyp.Regexp (RE_String "formula") ],
-            "default_priority",
-            [] ),
-          fun _ -> function _ -> (Syntax.Obj (Output Formula), []) );
-        ( ( "output",
-            [
-              Dyp.Regexp (RE_String "print");
-              Dyp.Regexp (RE_String "formula");
-              Dyp.Ter "FOR";
-              Dyp.Non_ter ("comma_separated_named_rev_list", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; _; Syntax.Obj (Named_list terms) ] ->
-                (Syntax.Obj (Output (Slice (List.rev terms))), [])
-            | _ -> assert false );
-        ( ( "output",
-            [ Dyp.Regexp (RE_String "print"); Dyp.Regexp (RE_String "model") ],
-            "default_priority",
-            [] ),
-          fun _ _ -> (Syntax.Obj (Output Model), []) );
-        ( ( "output",
-            [
-              Dyp.Regexp (RE_String "print");
-              Dyp.Non_ter ("format", No_priority);
-              Dyp.Non_ter ("expr", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Obj (Format format); Syntax.Expr term ] ->
-                (Syntax.Obj (Output (Value (format, term))), [])
-            | _ -> assert false );
-        ( ( "output",
-            [
-              Dyp.Regexp (RE_String "print");
-              Dyp.Regexp (RE_String "ascii");
-              Dyp.Regexp (RE_String "stream");
-              Dyp.Non_ter ("var", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; _; Syntax.Loc var ] ->
-                (Syntax.Obj (Output (Stream var)), [])
-            | _ -> assert false );
-        ( ("string_slice", [], "default_priority", []),
-          fun _ -> function
-            | _ ->
-                ( Syntax.Obj
-                    (String_slice ((Expr.integer Z.zero, Lexing.dummy_pos), None)),
-                  [] ) );
-        ( ( "string_slice",
-            [
-              Dyp.Regexp (RE_Char '[');
-              Dyp.Non_ter ("expr", No_priority);
-              Dyp.Regexp (RE_Char ']');
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Expr expr; _ ] ->
-                (Syntax.Obj (String_slice (expr, None)), [])
-            | _ -> assert false );
-        ( ( "string_slice",
-            [
-              Dyp.Regexp (RE_Char '[');
-              Dyp.Non_ter ("expr", No_priority);
-              Dyp.Regexp (RE_Char ',');
-              Dyp.Regexp (RE_Char '*');
-              Dyp.Regexp (RE_Char ']');
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Expr expr; _; _; _ ] ->
-                (Syntax.Obj (String_slice (expr, None)), [])
-            | _ -> assert false );
-        ( ( "string_slice",
-            [
-              Dyp.Regexp (RE_Char '[');
-              Dyp.Non_ter ("expr", No_priority);
-              Dyp.Regexp (RE_Char ',');
-              Dyp.Non_ter ("expr", No_priority);
-              Dyp.Regexp (RE_Char ']');
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Expr offset; _; Syntax.Expr size; _ ] ->
-                (Syntax.Obj (String_slice (offset, Some size)), [])
-            | _ -> assert false );
-        ( ( "output",
-            [
-              Dyp.Regexp (RE_String "print");
-              Dyp.Regexp (RE_String "c");
-              Dyp.Regexp (RE_String "string");
-              Dyp.Non_ter ("array", No_priority);
-              Dyp.Non_ter ("string_slice", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                _;
-                _;
-                _;
-                Syntax.Obj_array array;
-                Syntax.Obj (String_slice (offset, size));
-              ] ->
-                (Syntax.Obj (Output (String { array; offset; size })), [])
-            | _ -> assert false );
-        ( ( "and_separated_output_rev_list",
-            [ Dyp.Non_ter ("output", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (Output output) ] ->
-                (Syntax.Obj (Output_list [ output ]), [])
-            | _ -> assert false );
-        ( ( "and_separated_output_rev_list",
-            [
-              Dyp.Non_ter ("and_separated_output_rev_list", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Regexp (RE_String "and");
-              Dyp.Non_ter ("output", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (Output_list l); _; _; Syntax.Obj (Output output) ]
-              ->
-                (Syntax.Obj (Output_list (output :: l)), [])
-            | _ -> assert false );
-        ( ("outputs", [], "default_priority", []),
-          fun _ -> function _ -> (Syntax.Obj (Output_list []), []) );
-        ( ( "outputs",
-            [
-              Dyp.Ter "THEN";
-              Dyp.Non_ter ("and_separated_output_rev_list", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Obj (Output_list l) ] ->
-                (Syntax.Obj (Output_list (List.rev l)), [])
-            | _ -> assert false );
-        ( ( "qident",
-            [ Dyp.Non_ter ("ident", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.String id ] -> (Syntax.String id, []) | _ -> assert false
-        );
-        ( ("qident", [ Dyp.Ter "CONST" ], "default_priority", []),
-          fun _ -> function
-            | [ Syntax.Obj_CONST bv ] ->
-                (Syntax.String (Bitvector.to_asciistring bv), [])
-            | _ -> assert false );
-        ( ( "section",
-            [ Dyp.Non_ter ("qident", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.String id ] -> (Syntax.String id, []) | _ -> assert false
-        );
-        ( ( "section",
-            [ Dyp.Non_ter ("label", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.String id ] -> (Syntax.String ("." ^ id), [])
-            | _ -> assert false );
-        ( ( "comma_separated_section_rev_list",
-            [ Dyp.Non_ter ("section", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.String section ] ->
-                (Syntax.Obj (String_list [ section ]), [])
-            | _ -> assert false );
-        ( ( "comma_separated_section_rev_list",
-            [
-              Dyp.Non_ter ("comma_separated_section_rev_list", No_priority);
-              Dyp.Regexp (RE_Char ',');
-              Dyp.Non_ter ("section", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (String_list l); _; Syntax.String section ] ->
-                (Syntax.Obj (String_list (section :: l)), [])
-            | _ -> assert false );
-        ( ( "comma_separated_symbol_rev_list",
-            [ Dyp.Non_ter ("symbol", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Symbol sym ] -> (Syntax.Obj (Symbol_list [ sym ]), [])
-            | _ -> assert false );
-        ( ( "comma_separated_symbol_rev_list",
-            [
-              Dyp.Non_ter ("comma_separated_symbol_rev_list", No_priority);
-              Dyp.Regexp (RE_Char ',');
-              Dyp.Non_ter ("symbol", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (Symbol_list l); _; Syntax.Symbol sym ] ->
-                (Syntax.Obj (Symbol_list (sym :: l)), [])
-            | _ -> assert false );
-        ( ("arg", [ Dyp.Non_ter ("var", No_priority) ], "default_priority", []),
-          fun _ -> function
-            | [ Syntax.Loc var ] -> (Syntax.Obj (Loc_opt (Some var)), [])
-            | _ -> assert false );
-        ( ("arg", [ Dyp.Regexp (RE_Char '_') ], "default_priority", []),
-          fun _ _ -> (Syntax.Obj (Loc_opt None), []) );
-        ( ( "comma_separated_arg_rev_list",
-            [ Dyp.Non_ter ("arg", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (Loc_opt arg) ] ->
-                (Syntax.Obj (Loc_opt_list [ arg ]), [])
-            | _ -> assert false );
-        ( ( "comma_separated_arg_rev_list",
-            [
-              Dyp.Non_ter ("comma_separated_arg_rev_list", No_priority);
-              Dyp.Regexp (RE_Char ',');
-              Dyp.Non_ter ("arg", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (Loc_opt_list l); _; Syntax.Obj (Loc_opt arg) ] ->
-                (Syntax.Obj (Loc_opt_list (arg :: l)), [])
-            | _ -> assert false );
-        ( ("arguments", [], "default_priority", []),
-          fun _ _ -> (Syntax.Stmt [], []) );
-        ( ( "arguments",
-            [ Dyp.Regexp (RE_Char '('); Dyp.Regexp (RE_Char ')') ],
-            "default_priority",
-            [] ),
-          fun _ _ -> (Syntax.Stmt [], []) );
-        ( ( "arguments",
-            [
-              Dyp.Regexp (RE_Char '(');
-              Dyp.Non_ter ("comma_separated_arg_rev_list", No_priority);
-              Dyp.Regexp (RE_Char ')');
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Obj (Loc_opt_list args); _ ] ->
-                ( Syntax.Stmt
-                    (List.mapi
-                       (fun i arg ->
-                         Option.fold ~none:Instr.Nop
-                           ~some:(fun name -> Argument (name, i))
-                           arg)
-                       (List.rev args)),
-                  [] )
-            | _ -> assert false );
-        ( ("expr_opt", [], "default_priority", []),
-          fun _ _ -> (Syntax.Obj (Expr_opt None), []) );
-        ( ( "expr_opt",
-            [ Dyp.Non_ter ("expr", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Expr expr ] -> (Syntax.Obj (Expr_opt (Some expr)), [])
-            | _ -> assert false );
-        ( ( "control",
-            [
-              Dyp.Regexp (RE_String "return");
-              Dyp.Non_ter ("expr_opt", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Obj (Expr_opt expr) ] ->
-                (Syntax.Stmt [ Return expr ], [])
-            | _ -> assert false );
-        ( ( "comma_separated_expr_rev_list",
-            [ Dyp.Non_ter ("expr", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Expr expr ] -> (Syntax.Obj (Expr_list [ expr ]), [])
-            | _ -> assert false );
-        ( ( "comma_separated_expr_rev_list",
-            [
-              Dyp.Non_ter ("comma_separated_expr_rev_list", No_priority);
-              Dyp.Regexp (RE_Char ',');
-              Dyp.Non_ter ("expr", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (Expr_list l); _; Syntax.Expr expr ] ->
-                (Syntax.Obj (Expr_list (expr :: l)), [])
-            | _ -> assert false );
-        ( ("with_stmts_end", [], "default_priority", []),
-          fun _ _ -> (Syntax.Stmt [], []) );
-        ( ( "with_stmts_end",
-            [
-              Dyp.Regexp (RE_String "with");
-              Dyp.Non_ter ("stmts", No_priority);
-              Dyp.Ter "END";
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Stmt stmts; _ ] -> (Syntax.Stmt stmts, [])
-            | _ -> assert false );
-        ( ("such_that", [], "default_priority", []),
-          fun _ _ -> (Syntax.Obj (Expr_opt None), []) );
-        ( ( "such_that",
-            [
-              Dyp.Regexp (RE_String "such");
-              Dyp.Regexp (RE_String "that");
-              Dyp.Non_ter ("expr", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; Syntax.Expr guard ] ->
-                (Syntax.Obj (Expr_opt (Some guard)), [])
-            | _ -> assert false );
-        ( ("guard", [], "default_priority", []),
-          fun _ _ -> (Syntax.Obj (Expr_opt None), []) );
-        ( ( "guard",
-            [ Dyp.Ter "IF"; Dyp.Non_ter ("expr", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Expr guard ] ->
-                (Syntax.Obj (Expr_opt (Some guard)), [])
-            | _ -> assert false );
-        ( ( "directive",
-            [
-              Dyp.Regexp (RE_String "enumerate");
-              Dyp.Non_ter ("expr", No_priority);
-              Dyp.Non_ter ("num", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Expr expr; Syntax.Obj (Int n) ] ->
-                (Syntax.Stmt [ Enumerate (n, expr) ], [])
-            | _ -> assert false );
-        ( ( "directive",
-            [
-              Dyp.Regexp (RE_String "enumerate");
-              Dyp.Regexp (RE_Char '*');
-              Dyp.Non_ter ("expr", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; Syntax.Expr expr ] ->
-                (Syntax.Stmt [ Enumerate (max_int, expr) ], [])
-            | _ -> assert false );
-        ( ( "directive",
-            [ Dyp.Ter "ASSUME"; Dyp.Non_ter ("expr", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Expr expr ] -> (Syntax.Stmt [ Instr.Assume expr ], [])
-            | _ -> assert false );
-        ( ( "directive",
-            [ Dyp.Ter "ASSERT"; Dyp.Non_ter ("expr", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Expr expr ] -> (Syntax.Stmt [ Instr.Assert expr ], [])
-            | _ -> assert false );
-        ( ( "fallthrough",
-            [ Dyp.Non_ter ("output", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Obj (Output output) ] -> (Syntax.Instr (Print output), [])
-            | _ -> assert false );
-        ( ( "fallthrough",
-            [
-              Dyp.Regexp (RE_String "enumerate");
-              Dyp.Non_ter ("expr", No_priority);
-              Dyp.Non_ter ("num", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Expr expr; Syntax.Obj (Int n) ] ->
-                (Syntax.Instr (Enumerate (n, expr)), [])
-            | _ -> assert false );
-        ( ( "fallthrough",
-            [
-              Dyp.Regexp (RE_String "reach");
-              Dyp.Non_ter ("times", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("such_that", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("outputs", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                _;
-                Syntax.Obj (Int n);
-                _;
-                Syntax.Obj (Expr_opt guard);
-                _;
-                Syntax.Obj (Output_list outputs);
-              ] ->
-                (Syntax.Instr (Reach (n, guard, outputs)), [])
-            | _ -> assert false );
-        ( ( "fallthrough",
-            [
-              Dyp.Regexp (RE_String "cut");
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("guard", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; Syntax.Obj (Expr_opt guard) ] ->
-                (Syntax.Instr (Cut guard), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "starting");
-              Dyp.Regexp (RE_String "from");
-              Dyp.Non_ter ("expr", No_priority);
-              Dyp.Non_ter ("with_stmts_end", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; Syntax.Expr addr; Syntax.Stmt stmts ] ->
-                (Syntax.Decl (Starting_from (addr, stmts)), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "starting");
-              Dyp.Regexp (RE_String "from");
-              Dyp.Regexp (RE_String "core");
-              Dyp.Non_ter ("with_stmts_end", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; _; Syntax.Stmt stmts ] ->
-                (Syntax.Decl (Starting_from_core stmts), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "load");
-              Dyp.Regexp (RE_String "section");
-              Dyp.Non_ter ("section", No_priority);
-              Dyp.Regexp (RE_String "from");
-              Dyp.Regexp (RE_String "file");
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; Syntax.String section; _; _ ] ->
-                (Syntax.Decl (Load_sections [ section ]), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "load");
-              Dyp.Regexp (RE_String "sections");
-              Dyp.Non_ter ("comma_separated_section_rev_list", No_priority);
-              Dyp.Regexp (RE_String "from");
-              Dyp.Regexp (RE_String "file");
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; Syntax.Obj (String_list sections); _; _ ] ->
-                (Syntax.Decl (Load_sections sections), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Non_ter ("load", No_priority);
-              Dyp.Regexp (RE_String "from");
-              Dyp.Regexp (RE_String "file");
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Loc load; _; _ ] -> (Syntax.Decl (Load_data load), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "import");
-              Dyp.Non_ter ("comma_separated_symbol_rev_list", No_priority);
-              Dyp.Regexp (RE_String "from");
-              Dyp.Non_ter ("qident", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Obj (Symbol_list syms); _; Syntax.String file ] ->
-                (Syntax.Decl (Import_symbols (syms, file)), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "concretize");
-              Dyp.Regexp (RE_String "stack");
-            ],
-            "default_priority",
-            [] ),
-          fun _ _ ->
-            Logger.warning
-              "\"concretize stack\" is deprecated, use \"with concrete stack \
-               pointer\" instead";
-            (Syntax.Decl Concretize_stack_pointer, []) );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "with");
-              Dyp.Regexp (RE_String "concrete");
-              Dyp.Regexp (RE_String "stack");
-              Dyp.Regexp (RE_String "pointer");
-            ],
-            "default_priority",
-            [] ),
-          fun _ _ -> (Syntax.Decl Concretize_stack_pointer, []) );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "replace");
-              Dyp.Regexp (RE_String "opcode");
-              Dyp.Non_ter ("byte_rev_list", No_priority);
-              Dyp.Regexp (RE_String "by");
-              Dyp.Non_ter ("stmts", No_priority);
-              Dyp.Ter "END";
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; Syntax.Obj (Int_list bytes); _; Syntax.Stmt stmts; _ ] ->
-                ( Syntax.Decl
-                    (Decode (Binstream.of_list (List.rev bytes), stmts)),
-                  [] )
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "hook");
-              Dyp.Non_ter ("comma_separated_expr_rev_list", No_priority);
-              Dyp.Non_ter ("arguments", No_priority);
-              Dyp.Regexp (RE_String "with");
-              Dyp.Non_ter ("stmts", No_priority);
-              Dyp.Ter "END";
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                _;
-                Syntax.Obj (Expr_list addr);
-                Syntax.Stmt args;
-                _;
-                Syntax.Stmt stmts;
-                _;
-              ] ->
-                (Syntax.Decl (Hook (addr, List.rev_append args stmts, true)), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "replace");
-              Dyp.Non_ter ("comma_separated_expr_rev_list", No_priority);
-              Dyp.Non_ter ("arguments", No_priority);
-              Dyp.Regexp (RE_String "by");
-              Dyp.Non_ter ("stmts", No_priority);
-              Dyp.Ter "END";
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                _;
-                Syntax.Obj (Expr_list addr);
-                Syntax.Stmt args;
-                _;
-                Syntax.Stmt stmts;
-                _;
-              ] ->
-                ( Syntax.Decl (Hook (addr, List.rev_append args stmts, false)),
-                  [] )
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Ter "ABORT";
-              Dyp.Ter "AT";
-              Dyp.Non_ter ("comma_separated_expr_rev_list", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; Syntax.Obj (Expr_list addr) ] ->
-                ( Syntax.Decl
-                    (Hook
-                       ( addr,
-                         [
-                           Instr.dynamic_assert (Expr.zero, Lexing.dummy_pos);
-                           Instr.halt;
-                         ],
-                         false )),
-                  [] )
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Ter "HALT";
-              Dyp.Ter "AT";
-              Dyp.Non_ter ("comma_separated_expr_rev_list", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; Syntax.Obj (Expr_list addr) ] ->
-                (Syntax.Decl (Hook (addr, [ Instr.halt ], false)), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [ Dyp.Non_ter ("instr", No_priority) ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Stmt instr ] -> (Syntax.Decl (Init instr), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [ Dyp.Regexp (RE_String "reach"); Dyp.Regexp (RE_String "all") ],
-            "default_priority",
-            [] ),
-          fun _ _ ->
-            Logger.warning
-              "\"reach all\" is deprecated, use \"explore all\" instead";
-            (Syntax.Decl Explore_all, []) );
-        ( ( "decl",
-            [ Dyp.Regexp (RE_String "explore"); Dyp.Regexp (RE_String "all") ],
-            "default_priority",
-            [] ),
-          fun _ _ -> (Syntax.Decl Explore_all, []) );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "reach");
-              Dyp.Non_ter ("expr", No_priority);
-              Dyp.Non_ter ("arguments", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("times", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("such_that", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("outputs", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                _;
-                Syntax.Expr addr;
-                Syntax.Stmt args;
-                _;
-                Syntax.Obj (Int n);
-                _;
-                Syntax.Obj (Expr_opt guard);
-                _;
-                Syntax.Obj (Output_list outputs);
-              ] ->
-                ( Syntax.Decl
-                    (Hook
-                       ( [ addr ],
-                         List.rev_append args [ Reach (n, guard, outputs) ],
-                         true )),
-                  [] )
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "reach");
-              Dyp.Regexp (RE_Char '*');
-              Dyp.Non_ter ("expr", No_priority);
-              Dyp.Non_ter ("arguments", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("such_that", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("outputs", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                _;
-                _;
-                Syntax.Expr addr;
-                Syntax.Stmt args;
-                _;
-                Syntax.Obj (Expr_opt guard);
-                _;
-                Syntax.Obj (Output_list outputs);
-              ] ->
-                ( Syntax.Decl
-                    (Hook
-                       ( [ addr ],
-                         List.rev_append args [ Reach (-1, guard, outputs) ],
-                         true )),
-                  [] )
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "cut");
-              Dyp.Ter "AT";
-              Dyp.Non_ter ("expr", No_priority);
-              Dyp.Non_ter ("arguments", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("guard", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                _;
-                _;
-                Syntax.Expr addr;
-                Syntax.Stmt args;
-                _;
-                Syntax.Obj (Expr_opt guard);
-              ] ->
-                ( Syntax.Decl
-                    (Hook ([ addr ], List.rev_append args [ Cut guard ], true)),
-                  [] )
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Ter "AT";
-              Dyp.Non_ter ("expr", No_priority);
-              Dyp.Non_ter ("arguments", No_priority);
-              Dyp.Non_ter ("directive", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Expr addr; Syntax.Stmt args; Syntax.Stmt stmts ] ->
-                ( Syntax.Decl (Hook ([ addr ], List.rev_append args stmts, true)),
-                  [] )
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "hook");
-              Dyp.Non_ter ("symbol", No_priority);
-              Dyp.Regexp (RE_String "return");
-              Dyp.Regexp (RE_String "with");
-              Dyp.Non_ter ("stmts", No_priority);
-              Dyp.Ter "END";
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; Syntax.Symbol sym; _; _; Syntax.Stmt stmts; _ ] ->
-                (Syntax.Decl (Return_hook (sym, stmts)), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Ter "ABORT";
-              Dyp.Ter "AT";
-              Dyp.Non_ter ("symbol", No_priority);
-              Dyp.Regexp (RE_String "return");
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; Syntax.Symbol symbol; _ ] ->
-                ( Syntax.Decl
-                    (Return_hook
-                       ( symbol,
-                         [
-                           Instr.dynamic_assert (Expr.zero, Lexing.dummy_pos);
-                           Instr.halt;
-                         ] )),
-                  [] )
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Ter "HALT";
-              Dyp.Ter "AT";
-              Dyp.Non_ter ("symbol", No_priority);
-              Dyp.Regexp (RE_String "return");
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; Syntax.Symbol symbol; _ ] ->
-                (Syntax.Decl (Return_hook (symbol, [ Instr.halt ])), [])
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "reach");
-              Dyp.Non_ter ("symbol", No_priority);
-              Dyp.Regexp (RE_String "return");
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("times", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("such_that", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("outputs", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                _;
-                Syntax.Symbol symbol;
-                _;
-                _;
-                Syntax.Obj (Int n);
-                _;
-                Syntax.Obj (Expr_opt guard);
-                _;
-                Syntax.Obj (Output_list outputs);
-              ] ->
-                ( Syntax.Decl
-                    (Return_hook (symbol, [ Reach (n, guard, outputs) ])),
-                  [] )
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "reach");
-              Dyp.Regexp (RE_Char '*');
-              Dyp.Non_ter ("symbol", No_priority);
-              Dyp.Regexp (RE_String "return");
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("such_that", No_priority);
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("outputs", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [
-                _;
-                _;
-                Syntax.Symbol symbol;
-                _;
-                _;
-                Syntax.Obj (Expr_opt guard);
-                _;
-                Syntax.Obj (Output_list outputs);
-              ] ->
-                ( Syntax.Decl
-                    (Return_hook (symbol, [ Reach (-1, guard, outputs) ])),
-                  [] )
-            | _ -> assert false );
-        ( ( "decl",
-            [
-              Dyp.Regexp (RE_String "cut");
-              Dyp.Ter "AT";
-              Dyp.Non_ter ("symbol", No_priority);
-              Dyp.Regexp (RE_String "return");
-              Dyp.Non_ter ("accept_newline", No_priority);
-              Dyp.Non_ter ("guard", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ _; _; Syntax.Symbol symbol; _; _; Syntax.Obj (Expr_opt guard) ]
-              ->
-                (Syntax.Decl (Return_hook (symbol, [ Cut guard ])), [])
-            | _ -> assert false );
-        ( ("rev_program", [], "default_priority", []),
-          fun _ _ -> (Syntax.Program [], []) );
-        ( ( "rev_program",
-            [
-              Dyp.Non_ter ("rev_program", No_priority);
-              Dyp.Non_ter ("decl", No_priority);
-              Dyp.Non_ter ("separator", No_priority);
-            ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Program rev_program; Syntax.Decl decl; _ ] ->
-                (Syntax.Program (decl :: rev_program), [ Dyp.Keep_grammar ])
-            | _ -> assert false );
-        ( ( "program",
-            [ Dyp.Non_ter ("rev_program", No_priority); Dyp.Regexp RE_Eof_char ],
-            "default_priority",
-            [] ),
-          fun _ -> function
-            | [ Syntax.Program rev_program; _ ] ->
-                (Syntax.Program (List.rev rev_program), [])
-            | _ -> assert false );
-      ];
-  ]
+module Adapter
+    (I :
+      MenhirLib.IncrementalEngine.INCREMENTAL_ENGINE
+        with type token = Cromlech.token) =
+struct
+  let rec resume : 'a I.checkpoint -> 'a I.checkpoint =
+   fun checkpoint ->
+    match checkpoint with
+    | InputNeeded _ | Accepted _ | Rejected -> checkpoint
+    | Shifting _ | AboutToReduce _ | HandlingError _ ->
+        resume (I.resume ~strategy:`Simplified checkpoint)
 
-let try_and_parse grammar_extensions lexbuf =
-  let pilot =
-    Dyp.update_pp (Syntax.pp ()) (List.concat (grammar :: grammar_extensions))
+  let rec loop :
+      (Lexing.lexbuf -> I.token) ->
+      Lexing.lexbuf ->
+      bool ->
+      'a I.checkpoint list ->
+      'a =
+   fun lexer lexbuf skip_newline checkpoints ->
+    let token = lexer lexbuf in
+    let startp = lexbuf.lex_start_p and endp = lexbuf.lex_curr_p in
+    if token = Token (Ast.tk_newline, ()) then
+      if skip_newline then loop lexer lexbuf true checkpoints
+      else
+        offer lexer lexbuf true checkpoints
+          (Token (Parser.Symbols.tk_semicolon, ()), startp, endp)
+          checkpoints
+    else offer lexer lexbuf false checkpoints (token, startp, endp) []
+
+  and offer :
+      (Lexing.lexbuf -> I.token) ->
+      Lexing.lexbuf ->
+      bool ->
+      'a I.checkpoint list ->
+      Cromlech.token * Lexing.position * Lexing.position ->
+      'a I.checkpoint list ->
+      'a =
+   fun lexer lexbuf skip_newline checkpoints token acc ->
+    match checkpoints with
+    | [] ->
+        if acc = [] then raise Parsing.Parse_error
+        else loop lexer lexbuf skip_newline acc
+    | checkpoint :: checkpoints -> (
+        let checkpoint = resume (I.offer checkpoint token) in
+        match checkpoint with
+        | InputNeeded _ ->
+            offer lexer lexbuf skip_newline checkpoints token (checkpoint :: acc)
+        | Accepted value -> value
+        | Rejected | Shifting _ | AboutToReduce _ | HandlingError _ ->
+            offer lexer lexbuf skip_newline checkpoints token acc)
+
+  let parser :
+      (Lexing.position -> 'a I.checkpoint) ->
+      (Lexing.lexbuf -> I.token) ->
+      Lexing.lexbuf ->
+      'a =
+   fun start lexer lexbuf ->
+    loop lexer lexbuf true [ resume (start lexbuf.lex_curr_p) ]
+end
+
+module type SYMBOLS = sig
+  include Parser.SYMBOLS
+
+  val keyword : string -> unit Cromlech.Grammar.terminal
+end
+
+module type EXTENSION = functor (_ : SYMBOLS) -> sig
+  val extend : Cromlech.Grammar.rule list -> Cromlech.Grammar.rule list
+end
+
+let try_and_parse : (module EXTENSION) list -> Lexing.lexbuf -> Ast.t list =
+ fun grammar_extensions lexbuf ->
+  let t0 = Unix.gettimeofday () in
+  let module Symbols = struct
+    include Parser.Symbols
+
+    let keyword_tbl : unit Cromlech.Grammar.terminal Basic_types.String.Htbl.t =
+      let h = Basic_types.String.Htbl.create 256 in
+      List.iter (fun (k, v) -> Basic_types.String.Htbl.add h k v) Lexer.keywords;
+      h
+
+    let keyword : string -> unit Cromlech.Grammar.terminal =
+     fun name ->
+      try Basic_types.String.Htbl.find keyword_tbl name
+      with Not_found ->
+        let terminal =
+          Cromlech.Grammar.terminal name NonAssoc UndefinedPrecedence
+        in
+        Basic_types.String.Htbl.add keyword_tbl name terminal;
+        terminal
+
+    let kwd_or_ident : string -> Cromlech.token =
+     fun name ->
+      match Basic_types.String.Htbl.find keyword_tbl name with
+      | terminal -> Token (terminal, ())
+      | exception Not_found -> Token (tk_ident, name)
+  end in
+  let module Base = Parser.Grammar (Parser.Symbols) in
+  let rules =
+    List.fold_left
+      (fun acc extension ->
+        let module X = (val extension : EXTENSION) (Symbols) in
+        X.extend acc)
+      (Base.extend []) grammar_extensions
   in
-  match Dyp.lexparse pilot "program" lexbuf with
-  | [ (Syntax.Program ast, _) ] -> ast
-  | exception Failure _ ->
-      let s =
-        Format.asprintf "@[<v>Probable lexing error %a@]" Parse_utils.pp_pos
-          (Dyp.lexeme_end_p lexbuf)
-      in
-      raise (Parse_utils.UserFriendlyParseError s)
-  | _ | (exception Dyp.Syntax_error) ->
-      let s =
-        Format.asprintf "@[<v>Parse error at word `%s' %a@]" (Dyp.lexeme lexbuf)
-          Parse_utils.pp_pos (Dyp.lexeme_end_p lexbuf)
-      in
-      raise (Parse_utils.UserFriendlyParseError s)
+  let module Interpreter =
+    (val Cromlech.interpreter [ Parser.Symbols.nt_program ] rules)
+  in
+  let module A = Adapter (Interpreter) in
+  let program =
+    match Interpreter.starts with [ program ] -> A.parser program
+  in
+  let t1 = Unix.gettimeofday () in
+  Logger.debug ~level:0 "Script grammar assembled (%a)" Basic_types.Time.pp
+    (t1 -. t0);
+  try program (Lexer.token Symbols.kwd_or_ident) lexbuf
+  with Parsing.Parse_error ->
+    let s =
+      Format.asprintf "@[<v>Parse error at word `%s' %a@]"
+        (Lexing.lexeme lexbuf) Parse_utils.pp_pos
+        (Lexing.lexeme_end_p lexbuf)
+    in
+    raise (Parse_utils.UserFriendlyParseError s)
 
 type file_stream = Opened of in_channel * string list | Pending of string list
 
@@ -1685,10 +692,9 @@ let rec refill_buf lexbuf file_stream buf len =
       | exception Sys_error _ -> Logger.fatal "Cannot open file %s" filename
       | ic ->
           file_stream := Opened (ic, files);
-          Dyp.set_fname (Option.get !lexbuf) filename;
-          let std_lexbuf = Dyp.std_lexbuf (Option.get !lexbuf) in
-          Lexing.set_position std_lexbuf
-            { pos_fname = filename; pos_lnum = 0; pos_bol = 0; pos_cnum = 0 };
+          Lexing.set_filename (Option.get !lexbuf) filename;
+          Lexing.set_position (Option.get !lexbuf)
+            { pos_fname = filename; pos_lnum = 1; pos_bol = 0; pos_cnum = 0 };
           refill_buf lexbuf file_stream buf len)
   | Opened (ic, files) -> (
       match input ic buf 0 len with
@@ -1702,11 +708,13 @@ let rec refill_buf lexbuf file_stream buf len =
 let read_files gramma_extensions files =
   let file_stream = ref (Pending files) and lexbuf = ref None in
   lexbuf :=
-    Some (Dyp.from_function (Syntax.pp ()) (refill_buf lexbuf file_stream));
+    Some
+      (Lexing.from_function ~with_positions:true
+         (refill_buf lexbuf file_stream));
   Fun.protect
     ~finally:(fun () ->
       match !file_stream with Opened (ic, _) -> close_in ic | _ -> ())
     (fun () -> try_and_parse gramma_extensions (Option.get !lexbuf))
 
 let read_string gramma_extensions str =
-  try_and_parse gramma_extensions (Dyp.from_string (Syntax.pp ()) str)
+  try_and_parse gramma_extensions (Lexing.from_string ~with_positions:true str)
