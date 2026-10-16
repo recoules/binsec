@@ -20,7 +20,7 @@
 
 (menhir
  (modules parser)
- (flags --explain --strict))
+ (flags --strict))
 
 (ocamllex
  (modules lexer))

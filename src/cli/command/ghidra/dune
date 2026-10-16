@@ -9,7 +9,7 @@
 
 (menhir
  (modules parser_ghidra)
- (flags --explain --strict --fixed-exception))
+ (flags --strict --fixed-exception))
 
 (ocamllex
  (modules lexer_ghidra))

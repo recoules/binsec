@@ -10,7 +10,7 @@
 
 (menhir
  (modules parser)
- (flags --explain --strict --fixed-exception))
+ (flags --strict --fixed-exception))
 
 (ocamllex
  (modules lexer))
